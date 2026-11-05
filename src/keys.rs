@@ -28,7 +28,10 @@ pub enum Key {
 impl Key {
     pub fn from_event(e: KeyEvent) -> Option<Key> {
         Some(match e.code {
-            KeyCode::Char(c) if e.modifiers.contains(KeyModifiers::CONTROL) => Key::Ctrl(c),
+            // Ctrl-Shift-x is Ctrl-x, as the terminal sends it
+            KeyCode::Char(c) if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                Key::Ctrl(c.to_ascii_lowercase())
+            }
             KeyCode::Char(c) => Key::Char(c),
             KeyCode::Enter => Key::Enter,
             KeyCode::Esc => Key::Esc,
