@@ -32,9 +32,10 @@ pub fn dir(app: &str) -> Option<PathBuf> {
 /// The file's table: empty when there's no file, None (and the problem in `errors`) when it
 /// can't be read or isn't TOML.
 pub fn read(path: &Path, errors: &mut Vec<String>) -> Option<toml::Table> {
-    let name = path
-        .file_name()
-        .map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     match std::fs::read_to_string(path) {
         Ok(text) => parse(&text, &name, errors),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(toml::Table::new()),
@@ -57,7 +58,11 @@ pub fn parse(text: &str, name: &str, errors: &mut Vec<String>) -> Option<toml::T
 }
 
 /// The keymap from `[section]`: action = sequence or [sequences].
-pub fn keymap<A: Action>(table: &toml::Table, section: &str, errors: &mut Vec<String>) -> Keymap<A> {
+pub fn keymap<A: Action>(
+    table: &toml::Table,
+    section: &str,
+    errors: &mut Vec<String>,
+) -> Keymap<A> {
     let mut overrides: HashMap<String, Vec<String>> = HashMap::new();
     if let Some(keys) = table.get(section) {
         match keys.as_table() {
@@ -134,10 +139,13 @@ mod tests {
 
     fn action_for(map: &Keymap<Nav>, s: &str) -> Option<Nav> {
         let mut pending = Vec::new();
-        parse_seq(s).unwrap().into_iter().find_map(|k| match map.feed(&mut pending, k) {
-            Match::Action(a) => Some(a),
-            _ => None,
-        })
+        parse_seq(s)
+            .unwrap()
+            .into_iter()
+            .find_map(|k| match map.feed(&mut pending, k) {
+                Match::Action(a) => Some(a),
+                _ => None,
+            })
     }
 
     fn load(text: &str) -> (Keymap<Nav>, Colors, bool, Vec<String>) {

@@ -85,8 +85,14 @@ pub fn header_item<'a>(c: &Colors, name: &str) -> ListItem<'a> {
 pub fn bar(c: &Colors, fraction: f64, width: usize) -> Vec<Span<'static>> {
     let filled = ((fraction.clamp(0.0, 1.0) * width as f64).round() as usize).min(width);
     vec![
-        Span::styled("█".repeat(filled), ratatui::style::Style::default().fg(c.primary)),
-        Span::styled("█".repeat(width - filled), ratatui::style::Style::default().fg(c.panel)),
+        Span::styled(
+            "█".repeat(filled),
+            ratatui::style::Style::default().fg(c.primary),
+        ),
+        Span::styled(
+            "█".repeat(width - filled),
+            ratatui::style::Style::default().fg(c.panel),
+        ),
     ]
 }
 
@@ -118,15 +124,24 @@ mod tests {
 
     #[test]
     fn wrap_breaks_at_words() {
-        assert_eq!(wrap("one two three four", 9), vec!["one two", "three", "four"]);
-        assert_eq!(wrap("averyveryverylongword x", 5), vec!["averyveryverylongword", "x"]);
+        assert_eq!(
+            wrap("one two three four", 9),
+            vec!["one two", "three", "four"]
+        );
+        assert_eq!(
+            wrap("averyveryverylongword x", 5),
+            vec!["averyveryverylongword", "x"]
+        );
     }
 
     #[test]
     fn bar_is_always_its_width() {
         let c = Colors::default();
         for f in [-1.0, 0.0, 0.33, 1.0, 2.0] {
-            let width: usize = bar(&c, f, 20).iter().map(|s| s.content.chars().count()).sum();
+            let width: usize = bar(&c, f, 20)
+                .iter()
+                .map(|s| s.content.chars().count())
+                .sum();
             assert_eq!(width, 20, "{f}");
         }
     }

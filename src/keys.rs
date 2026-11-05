@@ -90,7 +90,10 @@ pub fn parse_seq(s: &str) -> Result<Vec<Key>, String> {
     let mut rest = s;
     while let Some(c) = rest.chars().next() {
         if c == '<' {
-            if let Some(k) = rest.find('>').and_then(|end| Some((end, parse_special(&rest[1..end])?))) {
+            if let Some(k) = rest
+                .find('>')
+                .and_then(|end| Some((end, parse_special(&rest[1..end])?)))
+            {
                 keys.push(k.1);
                 rest = &rest[k.0 + 1..];
                 continue;
@@ -234,8 +237,7 @@ impl<A: Action> Keymap<A> {
 
     /// [`Keymap::describe`] for running text: "(unbound)" when it's unbound.
     pub fn label(&self, action: A) -> String {
-        self.describe(action)
-            .unwrap_or_else(|| "(unbound)".into())
+        self.describe(action).unwrap_or_else(|| "(unbound)".into())
     }
 
     /// The single keys that start a binding, for spotting clashes with an app's other keys.
@@ -300,7 +302,10 @@ mod tests {
     #[test]
     fn parses_nvim_notation() {
         assert_eq!(parse_seq("<C-d>").unwrap(), vec![Key::Ctrl('d')]);
-        assert_eq!(parse_seq("gg").unwrap(), vec![Key::Char('g'), Key::Char('g')]);
+        assert_eq!(
+            parse_seq("gg").unwrap(),
+            vec![Key::Char('g'), Key::Char('g')]
+        );
         assert_eq!(parse_seq("<CR>").unwrap(), vec![Key::Enter]);
         assert_eq!(parse_seq("<Space>").unwrap(), vec![Key::Char(' ')]);
         assert_eq!(parse_seq("<lt>").unwrap(), vec![Key::Char('<')]);
