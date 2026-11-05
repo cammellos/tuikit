@@ -1,0 +1,11 @@
+[package]
+name = "tuikit"
+version = "0.1.0"
+edition = "2021"
+description = "The look and the keys shared by the terminal apps (eardrill, rdtui, sonetui)"
+license = "MIT"
+
+[dependencies]
+crossterm = "0.28"
+ratatui = "0.29"
+toml = "0.9"
