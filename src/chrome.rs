@@ -102,7 +102,25 @@ pub fn statusline<'a>(
     left: impl Into<Line<'a>>,
     right: impl Into<Line<'a>>,
 ) -> Rect {
-    let badge = Span::styled(format!(" {mode} "), c.badge(color));
+    statusline_with(
+        frame,
+        area,
+        c,
+        Span::styled(format!(" {mode} "), c.badge(color)),
+        left,
+        right,
+    )
+}
+
+/// [`statusline`] with the badge as the app draws it: a button with its own look.
+pub fn statusline_with<'a>(
+    frame: &mut Frame,
+    area: Rect,
+    c: &Colors,
+    badge: Span<'a>,
+    left: impl Into<Line<'a>>,
+    right: impl Into<Line<'a>>,
+) -> Rect {
     let badge_width = badge.width() as u16;
     let mut left: Line = left.into();
     let right: Line = right.into();
