@@ -1,8 +1,10 @@
 //! A column of `label  value` rows to fill in, one of them focused: an entry's fields, a settings
-//! page. A row is an [`Input`] or a note the app writes itself (a masked password, "generated on
-//! save"); `<Tab>`/`<Down>` and `<S-Tab>`/`<Up>` move between the inputs, every other key goes to
-//! the focused one. The app checks the values as they change and puts what's wrong under the row
-//! ([`Form::set_error`]), so a mistake shows while it's being made, not when the form closes.
+//! page. A row is an [`Input`], a note the app writes itself (a masked password, "generated on
+//! save"), or an action (a line `<CR>` does something on: "show the notes"). `<Tab>`/`<Down>` and
+//! `<Up>` move between the inputs and actions, every other key goes to the focused one; a key it
+//! doesn't use (`<S-Tab>`) comes back as [`FormEdit::Other`], for the app (generate a value). The
+//! app checks the values as they change and puts what's wrong under the row ([`Form::set_error`]),
+//! so a mistake shows while it's being made, not when the form closes.
 
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -18,6 +20,8 @@ pub enum Value {
     Input(Input),
     /// Shown, not edited: the app's text, dim.
     Note(String),
+    /// Focused like an input, not edited: `<CR>` on it is the app's [`FormEdit::Submit`].
+    Action(String),
 }
 
 pub struct Row {
@@ -37,6 +41,8 @@ pub enum FormEdit {
     Submit(usize),
     /// `<Esc>`.
     Cancel,
+    /// A key the form doesn't use (`<S-Tab>`), on row `n`: the app's.
+    Other(Key, usize),
 }
 
 #[derive(Default)]
@@ -45,6 +51,8 @@ pub struct Form {
     focus: usize,
     /// The first row drawn, kept between frames.
     scroll: usize,
+    /// Where each row was drawn last frame (screen row), for clicks.
+    drawn: Vec<(usize, u16)>,
 }
 
 impl Form {
@@ -62,32 +70,40 @@ impl Form {
         self
     }
 
+    pub fn action(mut self, label: &str, text: &str) -> Form {
+        self.push(label, Value::Action(text.into()));
+        self
+    }
+
     fn push(&mut self, label: &str, value: Value) {
         self.rows.push(Row {
             label: label.into(),
             value,
             error: None,
         });
-        if !self.is_input(self.focus) {
+        if !self.focusable(self.focus) {
             self.focus = self.rows.len() - 1;
-            if !self.is_input(self.focus) {
+            if !self.focusable(self.focus) {
                 self.focus = 0;
             }
         }
     }
 
-    fn is_input(&self, n: usize) -> bool {
-        matches!(self.rows.get(n).map(|r| &r.value), Some(Value::Input(_)))
+    fn focusable(&self, n: usize) -> bool {
+        matches!(
+            self.rows.get(n).map(|r| &r.value),
+            Some(Value::Input(_) | Value::Action(_))
+        )
     }
 
-    /// The row the keys go to (an input, if the form has any).
+    /// The row the keys go to (an input or an action, if the form has any).
     pub fn focus(&self) -> usize {
         self.focus
     }
 
-    /// Focus row `n`, if it's an input.
+    /// Focus row `n`, if it's an input or an action.
     pub fn focus_on(&mut self, n: usize) {
-        if self.is_input(n) {
+        if self.focusable(n) {
             self.focus = n;
         }
     }
@@ -133,13 +149,13 @@ impl Form {
         self.rows.iter().any(|r| r.error.is_some())
     }
 
-    /// Move the focus `by` inputs (wrapping), skipping notes.
+    /// Move the focus `by` rows (wrapping), skipping notes.
     fn step(&mut self, by: isize) {
         let n = self.rows.len() as isize;
         let mut at = self.focus as isize;
         for _ in 0..n {
             at = (at + by).rem_euclid(n);
-            if self.is_input(at as usize) {
+            if self.focusable(at as usize) {
                 self.focus = at as usize;
                 return;
             }
@@ -149,7 +165,7 @@ impl Form {
     pub fn handle(&mut self, key: Key) -> FormEdit {
         match key {
             Key::Tab | Key::Down => self.step(1),
-            Key::BackTab | Key::Up => self.step(-1),
+            Key::Up => self.step(-1),
             _ => {
                 let focus = self.focus;
                 if let Some(input) = self.get(focus) {
@@ -157,15 +173,23 @@ impl Form {
                         Edit::Changed => FormEdit::Changed(focus),
                         Edit::Submit => FormEdit::Submit(focus),
                         Edit::Cancel => FormEdit::Cancel,
-                        Edit::Moved | Edit::Ignored => FormEdit::Moved,
+                        Edit::Ignored => FormEdit::Other(key, focus),
+                        Edit::Moved => FormEdit::Moved,
                     };
                 }
-                if key == Key::Esc {
-                    return FormEdit::Cancel;
-                }
+                return match key {
+                    Key::Esc => FormEdit::Cancel,
+                    Key::Enter if self.focusable(focus) => FormEdit::Submit(focus),
+                    _ => FormEdit::Other(key, focus),
+                };
             }
         }
         FormEdit::Moved
+    }
+
+    /// The row drawn at screen row `y` last frame, if any (a click on it).
+    pub fn row_at(&self, y: u16) -> Option<usize> {
+        self.drawn.iter().find(|(_, at)| *at == y).map(|(n, _)| *n)
     }
 
     /// Draw it in `area`: labels in a column as wide as the longest, each error on a line of its
@@ -194,12 +218,14 @@ impl Form {
             self.scroll = last + 1 - rows;
         }
         let focus = self.focus;
+        self.drawn.clear();
         for (n, r) in self.rows.iter_mut().enumerate() {
             let y = starts[n] as isize - self.scroll as isize;
             if y < 0 || y as usize >= rows {
                 continue;
             }
             let line = Rect::new(area.x, area.y + y as u16, area.width, 1);
+            self.drawn.push((n, line.y));
             let pad = label_w.saturating_sub(cols(&r.label) + 1);
             let label = format!(" {}{}", r.label, " ".repeat(pad));
             let label_style = if n == focus && focused {
@@ -217,6 +243,14 @@ impl Form {
                 Value::Input(i) => i.draw(frame, value_area, c, focused && n == focus),
                 Value::Note(t) => {
                     frame.render_widget(Paragraph::new(t.as_str()).style(c.dim()), value_area)
+                }
+                Value::Action(t) => {
+                    let style = if focused && n == focus {
+                        c.selected()
+                    } else {
+                        c.base()
+                    };
+                    frame.render_widget(Paragraph::new(t.as_str()).style(style), value_area)
                 }
             }
             if let Some(e) = &r.error {
@@ -294,10 +328,41 @@ mod tests {
     }
 
     #[test]
+    fn actions_take_the_focus_and_s_tab_is_the_apps() {
+        let mut f = entry().action("notes", "show them");
+        f.focus_on(4);
+        assert_eq!(f.focus(), 4, "an action can be focused");
+        assert_eq!(f.handle(Key::Enter), FormEdit::Submit(4));
+        assert_eq!(f.handle(Key::Char('x')), FormEdit::Other(Key::Char('x'), 4));
+        f.handle(Key::Tab);
+        assert_eq!(f.focus(), 0, "Tab wraps past it");
+        f.handle(Key::Tab);
+        assert_eq!(
+            f.handle(Key::BackTab),
+            FormEdit::Other(Key::BackTab, 1),
+            "S-Tab: the app's"
+        );
+        assert_eq!(f.focus(), 1, "and it doesn't move");
+    }
+
+    #[test]
+    fn row_at_finds_the_clicked_row() {
+        let mut f = entry();
+        screen(&mut f, 40, 6);
+        assert_eq!(f.row_at(0), Some(0));
+        assert_eq!(f.row_at(3), Some(3));
+        assert_eq!(f.row_at(5), None);
+    }
+
+    #[test]
     fn a_form_of_notes_only_still_cancels() {
         let mut f = Form::new().note("a", "x");
         assert_eq!(f.handle(Key::Esc), FormEdit::Cancel);
-        assert_eq!(f.handle(Key::Char('q')), FormEdit::Moved);
+        assert_eq!(
+            f.handle(Key::Char('q')),
+            FormEdit::Other(Key::Char('q'), 0),
+            "the app's (its own q)"
+        );
     }
 
     #[test]

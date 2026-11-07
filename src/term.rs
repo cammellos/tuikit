@@ -8,7 +8,15 @@ use crossterm::event::{
 /// The mouse events the apps use (`mouse = true` in their config).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mouse {
-    Click { column: u16, row: u16 },
+    Click {
+        column: u16,
+        row: u16,
+    },
+    /// The right button: a context menu.
+    RightClick {
+        column: u16,
+        row: u16,
+    },
     ScrollUp,
     ScrollDown,
 }
@@ -17,6 +25,10 @@ impl Mouse {
     pub fn from_event(m: MouseEvent) -> Option<Mouse> {
         Some(match m.kind {
             MouseEventKind::Down(MouseButton::Left) => Mouse::Click {
+                column: m.column,
+                row: m.row,
+            },
+            MouseEventKind::Down(MouseButton::Right) => Mouse::RightClick {
                 column: m.column,
                 row: m.row,
             },

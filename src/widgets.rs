@@ -76,6 +76,16 @@ pub fn list(
     state.offset()
 }
 
+/// The item of a [`list`] drawn in `area` from `offset` that the screen cell (`column`, `row`) is
+/// on, if any: what a click picked. `len` is how many items it has.
+pub fn list_hit(area: Rect, offset: usize, len: usize, column: u16, row: u16) -> Option<usize> {
+    if !area.contains((column, row).into()) {
+        return None;
+    }
+    let i = offset + (row - area.y) as usize;
+    (i < len).then_some(i)
+}
+
 /// A section header row for [`list`].
 pub fn header_item<'a>(c: &Colors, name: &str) -> ListItem<'a> {
     ListItem::new(format!(" {name}")).style(c.header())
@@ -156,6 +166,15 @@ mod tests {
                 .sum();
             assert_eq!(width, 20, "{f}");
         }
+    }
+
+    #[test]
+    fn list_hit_maps_a_click_to_an_item() {
+        let area = Rect::new(2, 1, 10, 4);
+        assert_eq!(list_hit(area, 0, 10, 3, 1), Some(0));
+        assert_eq!(list_hit(area, 5, 10, 3, 3), Some(7), "scrolled");
+        assert_eq!(list_hit(area, 8, 10, 3, 4), None, "past the end");
+        assert_eq!(list_hit(area, 0, 10, 0, 1), None, "outside");
     }
 
     #[test]
