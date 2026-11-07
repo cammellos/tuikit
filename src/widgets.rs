@@ -81,6 +81,18 @@ pub fn header_item<'a>(c: &Colors, name: &str) -> ListItem<'a> {
     ListItem::new(format!(" {name}")).style(c.header())
 }
 
+/// A row of a folder tree for [`list`], indented two columns a level: a folder is `▾ name/` open
+/// or `▸ name/` closed (`folder` Some(open)), a leaf (None) lines up with the folder names above it.
+/// The app keeps which folders are open and flattens the tree into these rows.
+pub fn tree_item<'a>(c: &Colors, depth: usize, name: &str, folder: Option<bool>) -> ListItem<'a> {
+    let indent = "  ".repeat(depth);
+    match folder {
+        Some(open) => ListItem::new(format!(" {indent}{} {name}/", if open { "▾" } else { "▸" }))
+            .style(c.header()),
+        None => ListItem::new(format!(" {indent}  {name}")),
+    }
+}
+
 /// `fraction` (0 to 1) as a bar `width` cells long, filled `primary` on `panel`.
 pub fn bar(c: &Colors, fraction: f64, width: usize) -> Vec<Span<'static>> {
     let filled = ((fraction.clamp(0.0, 1.0) * width as f64).round() as usize).min(width);
@@ -144,6 +156,34 @@ mod tests {
                 .sum();
             assert_eq!(width, 20, "{f}");
         }
+    }
+
+    #[test]
+    fn tree_rows_indent_and_mark_folders() {
+        let c = Colors::default();
+        let text = |i: ListItem| {
+            let mut term =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 1)).unwrap();
+            term.draw(|f| {
+                f.render_widget(List::new(vec![i]), f.area());
+            })
+            .unwrap();
+            let buf = term.backend().buffer().clone();
+            (0..20)
+                .map(|x| buf[(x, 0)].symbol().to_string())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        };
+        assert_eq!(
+            text(tree_item(&c, 0, "Personal", Some(true))),
+            " ▾ Personal/"
+        );
+        assert_eq!(
+            text(tree_item(&c, 1, "Travel", Some(false))),
+            "   ▸ Travel/"
+        );
+        assert_eq!(text(tree_item(&c, 1, "wifi", None)), "     wifi");
     }
 
     #[test]
