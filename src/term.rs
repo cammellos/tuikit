@@ -1,5 +1,5 @@
 //! The terminal around the app: the mouse, on while a guard lives, and its events as the apps use
-//! them.
+//! them; kitty's keyboard protocol, on while a guard lives, for the Mod (`<D-x>`) keys.
 
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, MouseButton, MouseEvent, MouseEventKind,
@@ -41,5 +41,30 @@ impl MouseCapture {
 impl Drop for MouseCapture {
     fn drop(&mut self) {
         let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
+    }
+}
+
+/// Kitty's keyboard protocol on while it lives (disambiguated escape codes): what makes the terminal
+/// report Mod (Super) with a key, which [`crate::keys::Key::Super`] reads. A terminal without it
+/// ignores the request, and Mod keys just don't arrive. Dropping it pops the flags again.
+pub struct KeyboardProtocol;
+
+impl KeyboardProtocol {
+    pub fn enable() -> std::io::Result<Self> {
+        use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+        crossterm::execute!(
+            std::io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for KeyboardProtocol {
+    fn drop(&mut self) {
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::PopKeyboardEnhancementFlags
+        );
     }
 }

@@ -4,7 +4,9 @@
 //!
 //! Notation: plain characters (`n`, `G`, `gg`, `,o`) and `<...>` names: `<C-x>` (Ctrl),
 //! `<CR>`/`<Enter>`, `<Esc>`, `<Space>`, `<Tab>`, `<S-Tab>`, `<BS>`, `<Up>`, `<Down>`, `<Left>`,
-//! `<Right>`, `<lt>` (a literal `<`). A `<` that doesn't start one of those names is a literal `<`.
+//! `<Right>`, `<lt>` (a literal `<`), `<D-x>` (Mod/Super, as nvim writes it; `<D-J>` is
+//! Mod+Shift+j). A `<` that doesn't start one of those names is a literal `<`. Mod keys reach the
+//! app only while a [`crate::term::KeyboardProtocol`] guard lives (kitty's keyboard protocol).
 
 use std::collections::HashMap;
 
@@ -14,6 +16,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Key {
     Char(char),
     Ctrl(char),
+    /// Mod (Super) with a character, uppercase when Shift is held too.
+    Super(char),
     Enter,
     Esc,
     Tab,
@@ -28,6 +32,14 @@ pub enum Key {
 impl Key {
     pub fn from_event(e: KeyEvent) -> Option<Key> {
         Some(match e.code {
+            // Mod+Shift+j is <D-J>, whichever case the terminal reports the letter in
+            KeyCode::Char(c) if e.modifiers.contains(KeyModifiers::SUPER) => {
+                if e.modifiers.contains(KeyModifiers::SHIFT) {
+                    Key::Super(c.to_ascii_uppercase())
+                } else {
+                    Key::Super(c)
+                }
+            }
             // Ctrl-Shift-x is Ctrl-x, as the terminal sends it
             KeyCode::Char(c) if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 Key::Ctrl(c.to_ascii_lowercase())
@@ -123,13 +135,18 @@ fn parse_special(name: &str) -> Option<Key> {
         "right" => Key::Right,
         "lt" => Key::Char('<'),
         _ => {
-            let c = lower.strip_prefix("c-")?;
+            // the character as written: <D-J> keeps its case (Shift), <C-X> is <C-x>
+            let (prefix, c) = name.split_at_checked(2)?;
             let mut chars = c.chars();
             let ch = chars.next()?;
             if chars.next().is_some() {
                 return None;
             }
-            Key::Ctrl(ch)
+            match prefix.to_ascii_lowercase().as_str() {
+                "c-" => Key::Ctrl(ch.to_ascii_lowercase()),
+                "d-" => Key::Super(ch),
+                _ => return None,
+            }
         }
     })
 }
@@ -251,6 +268,7 @@ pub fn display_key(k: &Key) -> String {
         Key::Char(' ') => "<Space>".into(),
         Key::Char(c) => c.to_string(),
         Key::Ctrl(c) => format!("<C-{c}>"),
+        Key::Super(c) => format!("<D-{c}>"),
         Key::Enter => "<CR>".into(),
         Key::Esc => "<Esc>".into(),
         Key::Tab => "<Tab>".into(),
@@ -269,6 +287,7 @@ pub fn pending_label(keys: &[Key]) -> String {
         .map(|k| match k {
             Key::Char(c) => c.to_string(),
             Key::Ctrl(c) => format!("^{c}"),
+            Key::Super(c) => format!("D-{c}"),
             _ => String::new(),
         })
         .collect()
@@ -300,8 +319,26 @@ mod tests {
     }
 
     #[test]
+    fn mod_keys_from_the_terminal() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let ev = |c, m| Key::from_event(KeyEvent::new(KeyCode::Char(c), m));
+        let sup = KeyModifiers::SUPER;
+        assert_eq!(ev('j', sup), Some(Key::Super('j')));
+        assert_eq!(ev('j', sup | KeyModifiers::SHIFT), Some(Key::Super('J')));
+        assert_eq!(ev('J', sup | KeyModifiers::SHIFT), Some(Key::Super('J')));
+    }
+
+    #[test]
     fn parses_nvim_notation() {
         assert_eq!(parse_seq("<C-d>").unwrap(), vec![Key::Ctrl('d')]);
+        assert_eq!(parse_seq("<C-D>").unwrap(), vec![Key::Ctrl('d')]);
+        assert_eq!(
+            parse_seq("<D-J>").unwrap(),
+            vec![Key::Super('J')],
+            "Mod+Shift+j"
+        );
+        assert_eq!(parse_seq("<D-j>").unwrap(), vec![Key::Super('j')]);
+        assert_eq!(display_key(&Key::Super('J')), "<D-J>");
         assert_eq!(
             parse_seq("gg").unwrap(),
             vec![Key::Char('g'), Key::Char('g')]
