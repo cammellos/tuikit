@@ -129,9 +129,10 @@ impl Form {
         }
     }
 
+    /// Row `n`'s text, if it's a note or an action (a checkbox the app redraws).
     pub fn set_note(&mut self, n: usize, text: &str) {
         if let Some(Row {
-            value: Value::Note(t),
+            value: Value::Note(t) | Value::Action(t),
             ..
         }) = self.rows.get_mut(n)
         {
