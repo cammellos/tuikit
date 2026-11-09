@@ -12,9 +12,11 @@
 //! - [`popup`]: a box over the body for a confirmation or a pick;
 //! - [`menu`]: a few choices where they were asked for (a right click), keys or clicks to pick;
 //! - [`textarea`]: several lines of text to edit (notes), its copy wiped when taken;
-//! - [`term`]: the mouse, on while a guard lives.
+//! - [`term`]: the mouse, on while a guard lives;
+//! - [`components`]: the look and the inputs as `ratatui_kit` components, for apps built on it.
 
 pub mod chrome;
+pub mod components;
 pub mod config;
 pub mod form;
 pub mod input;
