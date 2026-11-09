@@ -11,6 +11,7 @@ use ratatui::Frame;
 use crate::keys::Key;
 use crate::theme::Colors;
 use crate::widgets::cols;
+use crate::wipe;
 
 /// What a key did to an [`Input`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +41,7 @@ pub struct Input {
 
 impl Input {
     pub fn new(text: &str) -> Input {
-        let text: Vec<char> = text.chars().collect();
+        let text = wipe::chars(text);
         let mut i = Input::default();
         i.cursor = text.len();
         i.text = text;
@@ -54,7 +55,7 @@ impl Input {
     }
 
     pub fn text(&self) -> String {
-        self.text.iter().collect()
+        wipe::string(&self.text)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -64,7 +65,7 @@ impl Input {
     /// Replace the text, the cursor at its end.
     pub fn set(&mut self, text: &str) {
         self.wipe();
-        self.text = text.chars().collect();
+        self.text = wipe::chars(text);
         self.cursor = self.text.len();
     }
 
@@ -76,11 +77,7 @@ impl Input {
     }
 
     fn wipe(&mut self) {
-        // volatile, so the writes aren't dropped as dead before the clear
-        for c in self.text.iter_mut() {
-            unsafe { std::ptr::write_volatile(c, '\0') };
-        }
-        self.text.clear();
+        wipe::wipe(&mut self.text);
         self.cursor = 0;
         self.scroll = 0;
     }
@@ -91,6 +88,7 @@ impl Input {
             Key::Enter => return Edit::Submit,
             Key::Esc => return Edit::Cancel,
             Key::Char(c) => {
+                wipe::make_room(&mut self.text, 1);
                 self.text.insert(self.cursor, c);
                 self.cursor += 1;
                 return Edit::Changed;
@@ -231,6 +229,17 @@ mod tests {
             "bc",
             "backspace at the start does nothing"
         );
+    }
+
+    #[test]
+    fn taking_leaves_nothing_of_a_deleted_or_a_kept_character() {
+        let mut keys = chars(&"x".repeat(100));
+        keys.extend([Key::Backspace, Key::Ctrl('w')]);
+        keys.extend(chars("abc"));
+        keys.push(Key::Backspace);
+        let mut i = typed(&keys);
+        assert_eq!(i.take(), "ab");
+        assert!(crate::wipe::all_zero(&mut i.text));
     }
 
     #[test]

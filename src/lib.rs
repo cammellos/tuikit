@@ -27,5 +27,6 @@ pub mod term;
 pub mod textarea;
 pub mod theme;
 pub mod widgets;
+mod wipe;
 
 pub use theme::Colors;

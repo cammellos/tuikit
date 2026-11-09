@@ -13,6 +13,7 @@ use crate::input::Edit;
 use crate::keys::Key;
 use crate::theme::Colors;
 use crate::widgets::cols;
+use crate::wipe;
 
 #[derive(Debug, Clone)]
 pub struct TextArea {
@@ -33,7 +34,7 @@ impl Default for TextArea {
 
 impl TextArea {
     pub fn new(text: &str) -> TextArea {
-        let lines: Vec<Vec<char>> = text.split('\n').map(|l| l.chars().collect()).collect();
+        let lines: Vec<Vec<char>> = text.split('\n').map(wipe::chars).collect();
         TextArea {
             lines,
             row: 0,
@@ -44,11 +45,22 @@ impl TextArea {
     }
 
     pub fn text(&self) -> String {
-        self.lines
+        // one string of the right size: no partial copies to free along the way
+        let bytes: usize = self
+            .lines
             .iter()
-            .map(|l| l.iter().collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+            .flatten()
+            .map(|c| c.len_utf8())
+            .sum::<usize>()
+            + self.lines.len();
+        let mut out = String::with_capacity(bytes);
+        for (i, line) in self.lines.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.extend(line.iter());
+        }
+        out
     }
 
     /// The text, leaving it empty and its old characters overwritten.
@@ -60,10 +72,7 @@ impl TextArea {
 
     fn wipe(&mut self) {
         for line in self.lines.iter_mut() {
-            for c in line.iter_mut() {
-                // volatile, so the writes aren't dropped as dead before the clear
-                unsafe { std::ptr::write_volatile(c, '\0') };
-            }
+            wipe::wipe(line);
         }
         self.lines = vec![Vec::new()];
         self.row = 0;
@@ -93,6 +102,7 @@ impl TextArea {
                 return Edit::Changed;
             }
             Key::Char(c) => {
+                wipe::make_room(&mut self.lines[self.row], 1);
                 self.lines[self.row].insert(self.col, c);
                 self.col += 1;
                 return Edit::Changed;
@@ -104,10 +114,12 @@ impl TextArea {
             }
             // at a line's start: join it to the one above
             Key::Backspace | Key::Ctrl('h') if self.row > 0 => {
-                let line = self.lines.remove(self.row);
+                let mut line = self.lines.remove(self.row);
                 self.row -= 1;
                 self.col = self.lines[self.row].len();
-                self.lines[self.row].extend(line);
+                wipe::make_room(&mut self.lines[self.row], line.len());
+                self.lines[self.row].extend_from_slice(&line);
+                wipe::wipe(&mut line);
                 return Edit::Changed;
             }
             Key::Ctrl('d') if self.col < len => {
@@ -125,6 +137,7 @@ impl TextArea {
             }
             Key::Tab => {
                 for _ in 0..2 {
+                    wipe::make_room(&mut self.lines[self.row], 1);
                     self.lines[self.row].insert(self.col, ' ');
                     self.col += 1;
                 }
