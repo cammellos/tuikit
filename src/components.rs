@@ -2,6 +2,7 @@
 //!
 //! - [`Theme`] goes at the root: it paints the background and gives every component under it the
 //!   Nord colours, and [`Colors`] as a context;
+//! - [`Chrome`] is the four rows every app has, its children the body;
 //! - [`InputField`] is the [`Input`] as a component, a secret one included.
 //!
 //! A component inside a closed `Modal` stays alive, so a secret [`InputField`] in a modal goes under
@@ -11,11 +12,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crossterm::event::{Event, KeyEventKind};
+use ratatui::layout::{Constraint, Direction};
+use ratatui::style::Color;
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Widget};
+use ratatui_kit::layout_style::LayoutStyle;
 use ratatui_kit::prelude::*;
 use ratatui_kit::Element;
 use zeroize::Zeroizing;
 
+use crate::chrome::{self, Cmdline, Hint};
 use crate::input::{Edit, Input};
 use crate::keys::Key;
 use crate::theme::Colors;
@@ -232,11 +238,306 @@ impl Component for InputField {
     }
 }
 
+/// What the command line shows: a [`Cmdline`] that owns its text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandLine {
+    Prompt { prompt: String, text: String },
+    Message { text: String, error: bool },
+    Idle { hints: Vec<Hint>, pending: Vec<Key> },
+}
+
+impl Default for CommandLine {
+    fn default() -> Self {
+        CommandLine::Idle {
+            hints: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
+}
+
+#[derive(Default, Props)]
+pub struct ChromeProps<'a> {
+    /// The body.
+    pub children: Vec<AnyElement<'a>>,
+    /// The tabs, or the app's name as the one tab.
+    pub tabs: Vec<String>,
+    pub active: usize,
+    /// Where you are in the tab.
+    pub crumbs: Vec<String>,
+    /// The statusline's badge.
+    pub mode: String,
+    /// The badge's colour: the primary one if not given.
+    pub mode_color: Option<Color>,
+    pub left: Line<'static>,
+    pub right: Line<'static>,
+    pub command: CommandLine,
+}
+
+#[derive(Default)]
+enum Row {
+    #[default]
+    Empty,
+    Tabs {
+        tabs: Vec<String>,
+        active: usize,
+        crumbs: Vec<String>,
+    },
+    Status {
+        mode: String,
+        color: Option<Color>,
+        left: Line<'static>,
+        right: Line<'static>,
+    },
+    Command(CommandLine),
+}
+
+#[derive(Default, Props)]
+struct BarProps {
+    row: Row,
+}
+
+/// One of the rows around the body, drawn by [`crate::chrome`].
+struct Bar {
+    row: Row,
+    colors: Colors,
+}
+
+impl Component for Bar {
+    type Props<'a> = BarProps;
+
+    fn new(_props: &Self::Props<'_>) -> Self {
+        Self {
+            row: Row::Empty,
+            colors: Colors::default(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        props: &mut Self::Props<'_>,
+        _hooks: Hooks,
+        updater: &mut ComponentUpdater,
+    ) {
+        self.row = std::mem::take(&mut props.row);
+        if let Some(c) = updater.get_context::<Colors>() {
+            self.colors = *c;
+        }
+        updater.set_layout_style(LayoutStyle {
+            height: Constraint::Length(1),
+            ..Default::default()
+        });
+    }
+
+    fn draw(&mut self, drawer: &mut ComponentDrawer<'_, '_>) {
+        let area = drawer.area;
+        let c = &self.colors;
+        match &self.row {
+            Row::Empty => {}
+            Row::Tabs {
+                tabs,
+                active,
+                crumbs,
+            } => {
+                let tabs: Vec<&str> = tabs.iter().map(String::as_str).collect();
+                chrome::tabline(drawer.frame, area, c, &tabs, *active, crumbs);
+            }
+            Row::Status {
+                mode,
+                color,
+                left,
+                right,
+            } => {
+                let color = color.unwrap_or(c.primary);
+                chrome::statusline(
+                    drawer.frame,
+                    area,
+                    c,
+                    mode,
+                    color,
+                    left.clone(),
+                    right.clone(),
+                );
+            }
+            Row::Command(command) => {
+                let what = match command {
+                    CommandLine::Prompt { prompt, text } => Cmdline::Prompt { prompt, text },
+                    CommandLine::Message { text, error } => Cmdline::Message {
+                        text,
+                        error: *error,
+                    },
+                    CommandLine::Idle { hints, pending } => Cmdline::Idle { hints, pending },
+                };
+                chrome::cmdline(drawer.frame, area, c, what);
+            }
+        }
+    }
+}
+
+fn bar<'a>(key: &'static str, row: Row) -> AnyElement<'a> {
+    Element::<Bar> {
+        key: ElementKey::user(key),
+        props: BarProps { row },
+    }
+    .into()
+}
+
+/// The four rows every app has: tabline, body, statusline, command line, always all four.
+pub struct Chrome;
+
+impl Component for Chrome {
+    type Props<'a> = ChromeProps<'a>;
+
+    fn new(_props: &Self::Props<'_>) -> Self {
+        Self
+    }
+
+    fn update(
+        &mut self,
+        props: &mut Self::Props<'_>,
+        _hooks: Hooks,
+        updater: &mut ComponentUpdater,
+    ) {
+        let body = Element::<View> {
+            key: ElementKey::user("tuikit-body"),
+            props: ViewProps {
+                children: std::mem::take(&mut props.children),
+                flex_direction: Direction::Vertical,
+                height: Constraint::Min(1),
+                ..Default::default()
+            },
+        }
+        .into();
+        let mut rows = vec![
+            bar(
+                "tuikit-tabline",
+                Row::Tabs {
+                    tabs: std::mem::take(&mut props.tabs),
+                    active: props.active,
+                    crumbs: std::mem::take(&mut props.crumbs),
+                },
+            ),
+            body,
+            bar(
+                "tuikit-statusline",
+                Row::Status {
+                    mode: std::mem::take(&mut props.mode),
+                    color: props.mode_color,
+                    left: std::mem::take(&mut props.left),
+                    right: std::mem::take(&mut props.right),
+                },
+            ),
+            bar(
+                "tuikit-command",
+                Row::Command(std::mem::take(&mut props.command)),
+            ),
+        ];
+        updater.set_layout_style(LayoutStyle {
+            flex_direction: Direction::Vertical,
+            ..Default::default()
+        });
+        updater.update_children(&mut rows, None);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::style::Color;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::Terminal;
     use ratatui_kit::test_util::render_frame;
+
+    fn row(buf: &Buffer, y: u16) -> String {
+        (0..buf.area.width)
+            .map(|x| buf[(x, y)].symbol().to_string())
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    #[test]
+    fn the_component_draws_the_same_cells_as_the_functions() {
+        let c = Colors::default();
+        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        terminal
+            .draw(|f| {
+                let a = chrome::frame(f, &c);
+                chrome::tabline(
+                    f,
+                    a.tabline,
+                    &c,
+                    &["Inbox", "Done"],
+                    1,
+                    &["one".to_string()],
+                );
+                chrome::statusline(f, a.statusline, &c, "NORMAL", c.success, "3 open", "12:00");
+                chrome::cmdline(
+                    f,
+                    a.cmdline,
+                    &c,
+                    Cmdline::Idle {
+                        hints: &[Hint::new("q", "quit")],
+                        pending: &[],
+                    },
+                );
+            })
+            .unwrap();
+
+        let buf = render_frame(
+            element!(Theme(colors: c) {
+                Chrome(
+                    tabs: vec!["Inbox".to_string(), "Done".to_string()],
+                    active: 1usize,
+                    crumbs: vec!["one".to_string()],
+                    mode: "NORMAL".to_string(),
+                    mode_color: Some(c.success),
+                    left: Line::from("3 open"),
+                    right: Line::from("12:00"),
+                    command: CommandLine::Idle {
+                        hints: vec![Hint::new("q", "quit")],
+                        pending: vec![],
+                    },
+                )
+            }),
+            40,
+            6,
+        );
+        assert_eq!(&buf, terminal.backend().buffer());
+    }
+
+    #[test]
+    fn the_children_fill_the_body_and_the_rows_stay_put() {
+        let buf = render_frame(
+            element!(Theme(colors: Colors::default()) {
+                Chrome(
+                    tabs: vec!["inbox".to_string()],
+                    mode: "NORMAL".to_string(),
+                    command: CommandLine::Message { text: "saved".to_string(), error: false },
+                ) {
+                    Text(text: Line::from("first"))
+                }
+            }),
+            30,
+            8,
+        );
+        assert_eq!(row(&buf, 0).trim(), "inbox");
+        assert_eq!(row(&buf, 1), "first");
+        assert_eq!(row(&buf, 6).trim(), "NORMAL");
+        assert_eq!(row(&buf, 7), "saved");
+    }
+
+    #[test]
+    fn a_badge_without_a_colour_is_the_primary_one() {
+        let c = Colors::default();
+        let buf = render_frame(
+            element!(Theme(colors: c) {
+                Chrome(tabs: vec!["x".to_string()], mode: "M".to_string())
+            }),
+            10,
+            4,
+        );
+        assert_eq!(buf[(0, 2)].style().bg, Some(c.primary));
+    }
 
     fn typed(input: &mut Input, s: &str) {
         for c in s.chars() {
