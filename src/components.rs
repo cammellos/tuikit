@@ -102,7 +102,8 @@ impl Component for Theme {
         let mut table = TableTheme::from_palette(&palette);
         table.highlight_style = c.selected();
 
-        let children = std::mem::take(&mut props.children);
+        // borrowed, not taken: a root element's props are the same ones on every frame
+        let children = props.children.iter_mut().map(AnyElement::from).collect();
         let children = overriding(select, children);
         let children = overriding(multi, children);
         let children = overriding(tree, children);
@@ -400,7 +401,7 @@ impl Component for Chrome {
         let body = Element::<View> {
             key: ElementKey::user("tuikit-body"),
             props: ViewProps {
-                children: std::mem::take(&mut props.children),
+                children: props.children.iter_mut().map(AnyElement::from).collect(),
                 flex_direction: Direction::Vertical,
                 height: Constraint::Min(1),
                 ..Default::default()
@@ -411,25 +412,22 @@ impl Component for Chrome {
             bar(
                 "tuikit-tabline",
                 Row::Tabs {
-                    tabs: std::mem::take(&mut props.tabs),
+                    tabs: props.tabs.clone(),
                     active: props.active,
-                    crumbs: std::mem::take(&mut props.crumbs),
+                    crumbs: props.crumbs.clone(),
                 },
             ),
             body,
             bar(
                 "tuikit-statusline",
                 Row::Status {
-                    mode: std::mem::take(&mut props.mode),
+                    mode: props.mode.clone(),
                     color: props.mode_color,
-                    left: std::mem::take(&mut props.left),
-                    right: std::mem::take(&mut props.right),
+                    left: props.left.clone(),
+                    right: props.right.clone(),
                 },
             ),
-            bar(
-                "tuikit-command",
-                Row::Command(std::mem::take(&mut props.command)),
-            ),
+            bar("tuikit-command", Row::Command(props.command.clone())),
         ];
         updater.set_layout_style(LayoutStyle {
             flex_direction: Direction::Vertical,
@@ -445,7 +443,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
     use ratatui::Terminal;
-    use ratatui_kit::test_util::render_frame;
+    use ratatui_kit::test_util::{render_frame, render_frames};
 
     fn row(buf: &Buffer, y: u16) -> String {
         (0..buf.area.width)
@@ -524,6 +522,23 @@ mod tests {
         assert_eq!(row(&buf, 1), "first");
         assert_eq!(row(&buf, 6).trim(), "NORMAL");
         assert_eq!(row(&buf, 7), "saved");
+    }
+
+    #[test]
+    fn at_the_root_they_stay_the_same_on_a_later_frame() {
+        let buf = render_frames(
+            element!(Theme(colors: Colors::default()) {
+                Chrome(tabs: vec!["inbox".to_string()], mode: "NORMAL".to_string()) {
+                    Text(text: Line::from("first"))
+                }
+            }),
+            30,
+            6,
+            3,
+        );
+        assert_eq!(row(&buf, 0).trim(), "inbox");
+        assert_eq!(row(&buf, 1), "first");
+        assert_eq!(row(&buf, 4).trim(), "NORMAL");
     }
 
     #[test]
