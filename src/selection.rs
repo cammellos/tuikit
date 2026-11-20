@@ -136,6 +136,13 @@ impl Selection {
         s.text = rows.join("\n").trim_end_matches('\n').to_string();
     }
 
+    /// No selection (what it covered moved: the pane scrolled).
+    pub fn clear(&self) {
+        let mut s = self.lock();
+        s.drag = None;
+        s.text.clear();
+    }
+
     /// The selected text as last drawn ("" with none).
     pub fn text(&self) -> String {
         self.lock().text.clone()
@@ -229,6 +236,14 @@ mod tests {
         drawn(&sel);
         assert_eq!(sel.text(), "beta\ngamma\nd");
         sel.mouse(ev(MouseEventKind::Down(MouseButton::Left), 0, 0));
+        drawn(&sel);
+        assert_eq!(sel.text(), "");
+        // (and so does clear: the pane scrolled under it)
+        sel.mouse(ev(MouseEventKind::Down(MouseButton::Left), 12, 0));
+        sel.mouse(ev(MouseEventKind::Drag(MouseButton::Left), 20, 1));
+        drawn(&sel);
+        assert!(!sel.text().is_empty());
+        sel.clear();
         drawn(&sel);
         assert_eq!(sel.text(), "");
     }
