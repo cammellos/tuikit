@@ -11,6 +11,12 @@ ratatui = "0.30"
 toml = "0.9"
 ratatui-kit = { git = "https://github.com/cammellos/ratatui-kit", rev = "1b35d2595429016558ddb896431a79b1c67ae389", features = ["tree", "table"] }
 zeroize = "1"
+# (feature `images`: image_view)
+image = { version = "0.25", default-features = false, optional = true }
+ratatui-image = { version = "11", default-features = false, features = ["crossterm"], optional = true }
+
+[features]
+images = ["dep:image", "dep:ratatui-image"]
 
 [dev-dependencies]
 ratatui-kit = { git = "https://github.com/cammellos/ratatui-kit", rev = "1b35d2595429016558ddb896431a79b1c67ae389", features = ["test-util"] }
