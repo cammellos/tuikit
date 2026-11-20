@@ -437,6 +437,40 @@ impl Component for Chrome {
     }
 }
 
+#[derive(Default, Props)]
+pub struct SelectionLayerProps {
+    pub selection: Option<crate::selection::Selection>,
+}
+
+/// The mouse's text selection drawn over the frame ([`crate::selection`]): put it last in the tree, after the
+/// regions it covers (and before what's drawn over everything, a menu or a picture). It takes no room.
+pub struct SelectionLayer {
+    selection: Option<crate::selection::Selection>,
+}
+
+impl Component for SelectionLayer {
+    type Props<'a> = SelectionLayerProps;
+
+    fn new(_props: &Self::Props<'_>) -> Self {
+        Self { selection: None }
+    }
+
+    fn update(&mut self, props: &mut Self::Props<'_>, _hooks: Hooks, updater: &mut ComponentUpdater) {
+        self.selection = props.selection.clone();
+        updater.set_layout_style(LayoutStyle {
+            width: Constraint::Length(0),
+            height: Constraint::Length(0),
+            ..Default::default()
+        });
+    }
+
+    fn draw(&mut self, drawer: &mut ComponentDrawer<'_, '_>) {
+        if let Some(selection) = &self.selection {
+            selection.draw(drawer.frame.buffer_mut());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

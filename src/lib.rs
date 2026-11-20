@@ -12,6 +12,7 @@
 //! - [`popup`]: a box over the body for a confirmation or a pick;
 //! - [`image_view`] (feature `images`): a picture over the body, its own size when it fits;
 //! - [`menu`]: a few choices where they were asked for (a right click), keys or clicks to pick;
+//! - [`selection`]: the mouse's text selection inside a pane, copied on release;
 //! - [`textarea`]: several lines of text to edit (notes), its copy wiped when taken;
 //! - [`term`]: the mouse, on while a guard lives;
 //! - [`components`]: the look and the inputs as `ratatui_kit` components, for apps built on it.
@@ -26,6 +27,7 @@ pub mod input;
 pub mod keys;
 pub mod menu;
 pub mod popup;
+pub mod selection;
 pub mod term;
 pub mod textarea;
 pub mod theme;
